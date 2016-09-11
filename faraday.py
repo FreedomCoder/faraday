@@ -17,52 +17,53 @@ import shutil
 import argparse
 import platform
 import subprocess
-import pip
+import json
 
 from utils.logs import getLogger, setUpLogger
-sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)) + '/external_libs/lib/python2.7/dist-packages')
 from config.configuration import getInstanceConfiguration
 from config.globals import *
 from utils.profilehooks import profile
-
+from utils.user_input import query_yes_no
 
 
 USER_HOME = os.path.expanduser(CONST_USER_HOME)
 FARADAY_BASE = os.path.dirname(os.path.realpath(__file__))
-QTDIR=os.path.join(FARADAY_BASE, 'external_libs', 'qt')
 
 FARADAY_USER_HOME = os.path.expanduser(CONST_FARADAY_HOME_PATH)
+
 FARADAY_PLUGINS_PATH = os.path.join(FARADAY_USER_HOME,
                         CONST_FARADAY_PLUGINS_PATH)
+
 FARADAY_PLUGINS_BASEPATH = os.path.join(FARADAY_BASE,
                             CONST_FARADAY_PLUGINS_REPO_PATH)
-
-FARADAY_BASE_LIB_HELPERS = os.path.join(FARADAY_BASE,
-                            CONST_FARADAY_LIB_HELPERS)
 
 FARADAY_BASE_IMAGES = os.path.join(FARADAY_BASE, "data",
                             CONST_FARADAY_IMAGES)
 
 FARADAY_USER_CONFIG_XML = os.path.join(FARADAY_USER_HOME,
                             CONST_FARADAY_USER_CFG)
+
 FARADAY_BASE_CONFIG_XML = os.path.join(FARADAY_BASE,
                             CONST_FARADAY_BASE_CFG)
 
 USER_ZSHRC = os.path.expanduser(CONST_USER_ZSHRC)
+
 FARADAY_USER_IMAGES = os.path.join(FARADAY_USER_HOME,
                             CONST_FARADAY_IMAGES)
+
 FARADAY_USER_ZSHRC = os.path.join(FARADAY_USER_HOME, CONST_FARADAY_ZSHRC)
 FARADAY_USER_ZSH_PATH = os.path.join(FARADAY_USER_HOME, CONST_ZSH_PATH)
 FARADAY_BASE_ZSH = os.path.join(FARADAY_BASE, CONST_FARADAY_ZSH_FARADAY)
-FARADAY_BASE_ZSH_PLUGIN = os.path.join(FARADAY_BASE,
-                            CONST_FARADAY_ZSH_PLUGIN)
 
-USER_QT = os.path.expanduser(CONST_USER_QT_PATH)
-USER_QTRC = os.path.expanduser(CONST_USER_QTRC_PATH)
-USER_QTRCBAK = os.path.expanduser(CONST_USER_QTRC_BACKUP)
-FARADAY_QTRC = os.path.join(FARADAY_BASE, CONST_FARADAY_QTRC_PATH)
-FARADAY_QTRCBAK = os.path.expanduser(CONST_FARADAY_QTRC_BACKUP)
-CONST_VERSION_FILE = os.path.join(FARADAY_BASE,"VERSION")
+FARADAY_VERSION_FILE = os.path.join(FARADAY_BASE, CONST_VERSION_FILE)
+FARADAY_CONFIG = os.path.join(FARADAY_BASE, CONST_CONFIG)
+FARADAY_REQUIREMENTS_FILE = os.path.join(FARADAY_BASE, CONST_REQUIREMENTS_FILE)
+
+REQUESTS_CA_BUNDLE_VAR = "REQUESTS_CA_BUNDLE"
+FARADAY_DEFAULT_PORT_XMLRPC = 9876
+FARADAY_DEFAULT_PORT_REST = 9977
+FARADAY_DEFAULT_HOST = "localhost"
+
 
 def getParserArgs():
     """Parser setup for faraday launcher arguments.
@@ -75,17 +76,18 @@ def getParserArgs():
 
     parser_connection = parser.add_argument_group('connection')
     parser_profile = parser.add_argument_group('profiling')
-    parser_gui_ex = parser.add_mutually_exclusive_group()
 
     parser_connection.add_argument('-n', '--hostname', action="store",
         dest="host",
-        default="localhost",
-        help="The hostname where api XMLRPCServer will listen. \
+        default=None,
+        help="The hostname where both server APIs will listen (XMLRPC and RESTful). \
         Default = localhost")
 
-    parser_connection.add_argument('-p', '--port', action="store", dest="port",
-        default=9876, type=int,
-        help="Sets the port where api XMLRPCServer will listen. Default = 9876")
+    parser_connection.add_argument('-px', '--port-xmlrpc', action="store", dest="port_xmlrpc", default=None, type=int,
+        help="Sets the port where the api XMLRPCServer will listen. Default = 9876")
+    parser_connection.add_argument('-pr', '--port-rest', action="store", dest="port_rest",
+        default=None, type=int,
+        help="Sets the port where the api RESTful server will listen. Default = 9977")
 
     parser.add_argument('-d', '--debug', action="store_true", dest="debug",
         default=False,
@@ -115,11 +117,6 @@ def getParserArgs():
         help="Disable the application exception hook that allows to send error \
         reports to developers.")
 
-    parser.add_argument('--disable-login', action="store_true",
-        dest="disable_login",
-        default=False,
-        help="Disable the auth splash screen.")
-
     parser.add_argument('--dev-mode', action="store_true", dest="dev_mode",
         default=False,
         help="Enable dev mode. This will use the user config and plugin folder.")
@@ -137,17 +134,31 @@ def getParserArgs():
         default=None,
         help="Path to the valid CouchDB certificate")
 
-    parser_gui_ex.add_argument('--gui', action="store", dest="gui",
-        default="qt3",
-        help="Select interface to start faraday. Default = qt3")
+    parser.add_argument('--gui', action="store", dest="gui",
+        default="gtk",
+        help="Select interface to start faraday. Supported values are "
+              "gtk and 'no' (no GUI at all). Defaults to GTK")
 
-    parser_gui_ex.add_argument('--cli', '--console', action="store_true",
+    parser.add_argument('--cli', action="store_true",
         dest="cli",
-        default="false",
+        default=False,
         help="Set this flag to avoid gui and use faraday as a cli.")
+
+    parser.add_argument(
+        '-w', '--workspace', action="store",
+        dest="workspace",
+        default=None,
+        help="Workspace to be opened")
+
+    parser.add_argument(
+        '-r', '--report', action="store",
+        dest="filename",
+        default=None,
+        help="Report to be parsed by the cli")
 
     #args = parser.parse_args(['@parser_args.cfg'])
     return parser.parse_args()
+
 
 def query_user_bool(question, default=True):
     """Returns a boolean based on user input.
@@ -184,8 +195,8 @@ def query_user_bool(question, default=True):
         if choice in valid_no_ans:
             return False
 
-        sys.stdout.write("Please respond with 'yes' or 'no' "\
-                             "(or 'y' or 'n').\n")
+        sys.stdout.write("Please respond with 'yes' or 'no' "
+                         "(or 'y' or 'n').\n")
 
 
 def checkDependencies():
@@ -197,30 +208,31 @@ def checkDependencies():
     """
 
     if not args.ignore_deps:
+        try:
+            import pip
+            modules = []
+            f = open(FARADAY_REQUIREMENTS_FILE)
+            for line in f:
+                if not line.find('#'):
+                    break
+                else:
+                    modules.append(line.strip('\n'))
+            f.close()
+            pip_dist = [dist.project_name.lower() for dist in pip.get_installed_distributions()]
+            for module in modules:
+                if module.lower() not in pip_dist:
+                    try:
+                        __import__(module)
+                    except ImportError:
+                        if query_user_bool("Missing module %s."
+                            " Do you wish to install it?" % module):
+                            pip.main(['install', "%s" %
+                                     module, '--user'])
 
-        modules = []
-        f = open(CONST_REQUIREMENTS_FILE)
-        for line in f:
-            if not line.find('#'):
-                break
-            else:
-                modules.append([line[:line.index('=')], (line[line.index('=')+2:]).strip()])
-        f.close()
-
-        pip_dist = [dist.project_name.lower() for dist in pip.get_installed_distributions()]
-
-        for module in modules:
-            if module[0].lower() not in pip_dist:
-                try:
-                    __import__(module[0])
-                except ImportError:
-                    if query_user_bool("Missing module %s." \
-                        " Do you wish to install it?" % module[0]):
-                        pip.main(['install', "%s==%s" %
-                                 (module[0], module[1]), '--user'])
-
-                    else:
-                        return False
+                        else:
+                            return False
+        except ImportError:
+            pass
 
     return True
 
@@ -235,13 +247,14 @@ def startProfiler(app, output, depth):
 
     """
 
-    logger.warning("[!] Faraday will be started with a profiler attached." \
-    "Performance may be affected.")
+    logger.warning("[!] Faraday will be started with a profiler attached."
+                   "Performance may be affected.")
 
     start = profile(app,
-            filename=output,
-            entries=depth)
+                    filename=output,
+                    entries=depth)
     return start
+
 
 def setConf():
     """User configuration management and instantiation.
@@ -255,11 +268,18 @@ def setConf():
 
     CONF = getInstanceConfiguration()
     CONF.setDebugStatus(args.debug)
-    if args.host != 'localhost':
-        CONF.setApiConInfoHost(args.host)
-    if args.port != 9876:
-        CONF.setApiConInfoPort(args.port)
-    CONF.setAuth(args.disable_login)
+
+    host = CONF.getApiConInfoHost() if str(CONF.getApiConInfoHost()) != "None" else FARADAY_DEFAULT_HOST
+    port_xmlrpc = CONF.getApiConInfoPort() if str(CONF.getApiConInfoPort()) != "None" else FARADAY_DEFAULT_PORT_XMLRPC
+    port_rest = CONF.getApiRestfulConInfoPort() if str(CONF.getApiRestfulConInfoPort()) != "None" else FARADAY_DEFAULT_PORT_REST
+
+    host = args.host if args.host else host
+    port_xmlrpc = args.port_xmlrpc if args.port_xmlrpc else port_xmlrpc
+    port_rest = args.port_rest if args.port_rest else port_rest
+
+    CONF.setApiConInfoHost(host)
+    CONF.setApiConInfoPort(port_xmlrpc)
+    CONF.setApiRestfulConInfoPort(port_rest)
 
 
 def startFaraday():
@@ -275,22 +295,18 @@ def startFaraday():
 
     logger.info("All done. Opening environment.")
     #TODO: Handle args in CONF and send only necessary ones.
-    # Force OSX to run no gui
-    if sys.platform == "darwin":
-        args.gui = "no-gui"
 
     main_app = MainApplication(args)
 
     if not args.disable_excepthook:
-            logger.warning("Main application ExceptHook enabled.")
+            logger.info("Main application ExceptHook enabled.")
             main_app.enableExceptHook()
 
     if args.profile:
         logger.info("Starting main application with profiler.")
-        start = startProfiler(
-                main_app.start,
-                args.profile_output,
-                args.profile_depth)
+        start = startProfiler(main_app.start,
+                              args.profile_output,
+                              args.profile_depth)
     else:
         logger.info("Starting main application.")
         start = main_app.start
@@ -305,13 +321,14 @@ def startFaraday():
                 """Make sure you got couchdb up and running.\nIf couchdb is up, point your browser to: \n[%s]""" % url)
     else:
         print(Fore.WHITE + Style.BRIGHT + \
-                """Please config Couchdb for fancy HTML5 Dashboard""")
+                """Please config Couchdb for fancy HTML5 Dashboard (https://github.com/infobyte/faraday/wiki/Couchdb)""")
 
     print(Fore.RESET + Back.RESET + Style.RESET_ALL)
 
     exit_status = start()
 
     return exit_status
+
 
 def setupPlugins(dev_mode=False):
     """Checks and handles Faraday's plugin status.
@@ -332,28 +349,12 @@ def setupPlugins(dev_mode=False):
         logger.warning("Using user plugins folder")
     else:
         if os.path.isdir(FARADAY_PLUGINS_PATH):
-            logger.info("Removing old plugins folder")
+            logger.info("Removing old plugins folder.")
             shutil.rmtree(FARADAY_PLUGINS_PATH)
         else:
             logger.info("No plugins folder detected. Creating new one.")
 
         shutil.copytree(FARADAY_PLUGINS_BASEPATH, FARADAY_PLUGINS_PATH)
-
-def setupQtrc():
-    """Cheks and handles QT configuration file.
-
-    Existing qtrc files will be backed up and faraday qtrc will be set.
-
-    """
-    from ctypes import cdll
-    try:
-        import qt
-    except:
-        try:
-            cdll.LoadLibrary(os.path.join(QTDIR, 'lib', 'libqt.so'))
-            cdll.LoadLibrary(os.path.join(QTDIR, 'lib', 'libqui.so'))
-        except:
-            pass
 
 def setupZSH():
     """Cheks and handles Faraday's integration with ZSH.
@@ -373,9 +374,8 @@ def setupZSH():
         f.seek(0, 0)
         f.write('ZDOTDIR=$OLDZDOTDIR' + '\n' + content)
     with open(FARADAY_USER_ZSHRC, "a") as f:
-        f.write("source %s" % FARADAY_BASE_ZSH)
+        f.write("source \"%s\"" % FARADAY_BASE_ZSH)
     shutil.copy(FARADAY_BASE_ZSH, FARADAY_USER_ZSH_PATH)
-    shutil.copy(FARADAY_BASE_ZSH_PLUGIN, FARADAY_USER_ZSH_PATH)
 
 def setupXMLConfig():
     """Checks user configuration file status.
@@ -389,39 +389,6 @@ def setupXMLConfig():
     else:
         logger.info("Using custom user configuration.")
 
-def setupLibs():
-    """Checks ELF libraries status."
-
-    Right now it only looks for the right helpers.so from the base path based on
-    system platform and architecture, and creates a symbolic link to it inside
-    the same folder.
-
-    """
-
-    arch = platform.machine()
-    helpers = FARADAY_BASE_LIB_HELPERS
-    if sys.platform == "linux" or sys.platform == "linux2":
-        if arch == "amd64" or arch == "x86_64":
-            logger.info("x86_64 linux detected.")
-            helpers += ".amd64"
-        elif arch == "i686" or arch == "i386":
-            logger.info("i386/686 linux detected.")
-            helpers += ".i386"
-        else:
-            logger.fatal("Linux architecture could not be determined.")
-            exit()
-    elif sys.platform == "darwin":
-        logger.info("OS X detected.")
-        helpers += ".darwin"
-    else:
-        logger.fatal("Plaftorm not supported yet.")
-        exit()
-
-    if os.path.isfile(FARADAY_BASE_LIB_HELPERS):
-        os.remove(FARADAY_BASE_LIB_HELPERS)
-
-    subprocess.call(['ln', '-s', helpers, FARADAY_BASE_LIB_HELPERS])
-
 def setupImages():
     """ Copy png icons
     """
@@ -429,29 +396,24 @@ def setupImages():
         shutil.rmtree(FARADAY_USER_IMAGES)
     shutil.copytree(FARADAY_BASE_IMAGES, FARADAY_USER_IMAGES)
 
-def checkConfiguration():
+
+def checkConfiguration(gui_type):
     """Checks if the environment is ready to run Faraday.
 
     Checks different environment requirements and sets them before starting
-    Faraday. This includes checking for plugin folders, libraries, QT
-    configuration and ZSH integration.
+    Faraday. This includes checking for plugin folders, libraries,
+    and ZSH integration.
     """
-
     logger.info("Checking configuration.")
     logger.info("Setting up plugins.")
     setupPlugins(args.dev_mode)
-    logger.info("Setting up folders.")
-    setupFolders(CONST_FARADAY_FOLDER_LIST)
-    logger.info("Setting up Qt configuration.")
-    setupQtrc()
     logger.info("Setting up ZSH integration.")
     setupZSH()
-    logger.info("Setting up  user configuration.")
+    logger.info("Setting up user configuration.")
     setupXMLConfig()
-    logger.info("Setting up libraries.")
-    setupLibs()
-    logger.info("Setting up icons for QT interface.")
+    logger.info("Setting up icons for GTK interface.")
     setupImages()
+
 
 def setupFolders(folderlist):
     """Checks if a list of folders exists and creates them otherwise.
@@ -462,14 +424,18 @@ def setupFolders(folderlist):
         fp_folder = os.path.join(FARADAY_USER_HOME, folder)
         checkFolder(fp_folder)
 
+
 def checkFolder(folder):
     """Checks whether a folder exists and creates it if it doesn't.
 
     """
 
     if not os.path.isdir(folder):
-        logger.info("Creating %s" % folder)
-        os.mkdir(folder)
+        if logger:
+            logger.info("Creating %s" % folder)
+        os.makedirs(folder)
+
+
 
 def printBanner():
     """Prints Faraday's ascii banner.
@@ -491,6 +457,7 @@ _/ ____\_____  ____________     __| _/_____   ___.__.
     print(Fore.RESET + Back.RESET + Style.RESET_ALL)
     logger.info("Starting Faraday IDE.")
 
+
 def update():
     """Updates Faraday IDE.
 
@@ -508,13 +475,13 @@ def checkUpdates():
     uri = getInstanceConfiguration().getUpdatesUri()
     resp = u"OK"
     try:
-        f = open(CONST_VERSION_FILE)
+        f = open(FARADAY_VERSION_FILE)
 
         getInstanceConfiguration().setVersion(f.read().strip())
         getInstanceConfiguration().setAppname("Faraday - Penetration Test IDE Community")
         parameter = {"version": getInstanceConfiguration().getVersion()}
 
-        f.close
+        f.close()
         resp = requests.get(uri, params=parameter, timeout=1, verify=True)
         resp = resp.text.strip()
     except Exception as e:
@@ -522,7 +489,7 @@ def checkUpdates():
     if not resp == u'OK':
         logger.info("You have available updates. Run ./faraday.py --update to catchup!")
     else:
-        logger.info("No updates available, enjoy Faraday")
+        logger.info("No updates available, enjoy Faraday.")
 
 
 def checkCouchUrl():
@@ -540,6 +507,23 @@ def checkCouchUrl():
         # Non fatal error
         pass
 
+def checkVersion():
+    try:
+        f = open(FARADAY_VERSION_FILE)
+        f_version = f.read().strip()
+        if not args.update:
+            if getInstanceConfiguration().getVersion() != None and getInstanceConfiguration().getVersion() != f_version:
+                logger.warning("You have different version of Faraday since your last run.\nRun ./faraday.py --update to update configuration!")
+                if query_yes_no('Do you want to close Faraday?', 'yes'):
+                    sys.exit(-1)
+
+        getInstanceConfiguration().setVersion(f_version)
+        f.close()
+
+    except Exception as e:
+        getLogger("launcher").error("It seems that something's wrong with your version\nPlease contact customer support")
+        sys.exit(-1)
+
 
 def init():
     """Initializes what is needed before starting.
@@ -550,9 +534,13 @@ def init():
 
     global args
     global logger
+    logger = None
 
     args = getParserArgs()
+    setupFolders(CONST_FARADAY_FOLDER_LIST)
+    setUpLogger(args.debug)
     logger = getLogger("launcher")
+
 
 def main():
     """Main.
@@ -560,17 +548,18 @@ def main():
     Main function for launcher.
 
     """
+    os.chdir(FARADAY_BASE)
 
     init()
     if checkDependencies():
         printBanner()
         logger.info("Dependencies met.")
         if args.cert_path:
-            os.environ['REQUESTS_CA_BUNDLE'] = args.cert_path
-        checkConfiguration()
+            os.environ[REQUESTS_CA_BUNDLE_VAR] = args.cert_path
+        checkConfiguration(args.gui)
         setConf()
         checkCouchUrl()
-        setUpLogger()
+        checkVersion()
         update()
         checkUpdates()
         startFaraday()

@@ -75,6 +75,8 @@ class modelactions:
     EDITCRED = 2048
     ADDCRED = 2049
     DELCRED = 2050
+    PLUGINSTART = 3000
+    PLUGINEND = 3001
 
     __descriptions = {
         ADDHOST: "ADDHOST",
@@ -115,7 +117,9 @@ class modelactions:
         ADDVULN: "ADDVULN",
         DELVULN: "DELVULN",
         ADDCRED: "ADDCRED",
-        DELCRED: "DELCRED"
+        DELCRED: "DELCRED",
+        PLUGINSTART: "PLUGINSTART",
+        PLUGINEND: "PLUGINEND"
     }
 
     @staticmethod
@@ -125,27 +129,22 @@ class modelactions:
 
 class ModelController(threading.Thread):
 
-    def __init__(self, security_manager, mappers_manager):
+    def __init__(self, mappers_manager):
         threading.Thread.__init__(self)
 
-        self.__sec = security_manager
         self.mappers_manager = mappers_manager
 
         # set as daemon
         self.setDaemon(True)
 
-        #TODO: think of a good way to handle cross reference between hosts and
-        #categories
-        self._categories = {}
-        self._categories[CONF.getDefaultCategory()] = []
-
-        # dictionary with host ids as key
-        self._hosts = None
-
         # flag to stop daemon thread
         self._stop = False
         # locks needed to make model thread-safe
         self._hosts_lock = threading.RLock()
+
+        # count of plugins sending actions
+        self.active_plugins_count = 0
+        self.active_plugins_count_lock = threading.RLock()
 
         #TODO: check if it is better using collections.deque
         # a performance analysis should be done
@@ -242,7 +241,10 @@ class ModelController(threading.Thread):
             modelactions.EDITNOTE: self.__edit,
             modelactions.EDITCRED: self.__edit,
             modelactions.ADDCRED: self.__add,
-            modelactions.DELCRED: self.__del
+            modelactions.DELCRED: self.__del,
+            # Plugin states
+            modelactions.PLUGINSTART: self._pluginStart,
+            modelactions.PLUGINEND: self._pluginEnd
         }
 
     def run(self):
@@ -350,8 +352,9 @@ class ModelController(threading.Thread):
         """
         while True:
             # check if thread must finish
-            if self._stop:
-                return
+            # no plugin should be active to stop the controller
+            if self._stop and self.active_plugins_count == 0:
+                break
             # first we check if there is a sync api request
             # or if the model is being saved/sync'ed
             # or if we have pending duplicated hosts that need to be
@@ -385,8 +388,8 @@ class ModelController(threading.Thread):
             # because if we don't do it, the daemon will be blocked forever
             pass
         except Exception:
-            getLogger(self).devlog("something strange happened... unhandled exception?")
-            getLogger(self).devlog(traceback.format_exc())
+            getLogger(self).debug("something strange happened... unhandled exception?")
+            getLogger(self).debug(traceback.format_exc())
 
     def sync_lock(self):
         self._sync_api_request = True
@@ -448,7 +451,7 @@ class ModelController(threading.Thread):
         old_obj = dataMapper.find(obj.getID())
         if old_obj:
             if not old_obj.needs_merge(obj):
-                #the object is exactly the same,
+                # the object is exactly the same,
                 # so return and do nothing
                 return True
             if not self.addUpdate(old_obj, obj):
@@ -459,6 +462,19 @@ class ModelController(threading.Thread):
             object_parent = self.mappers_manager.find(parent_id)
             if object_parent:
                 object_parent.addChild(obj)
+            # we have to make sure that certain objects have to have a parent
+            if (obj.class_signature in
+                [model.hosts.Interface.class_signature,
+                 model.hosts.Service.class_signature,
+                 model.common.ModelObjectNote.class_signature,
+                 model.common.ModelObjectVuln.class_signature,
+                 model.common.ModelObjectVulnWeb.class_signature,
+                 model.common.ModelObjectCred.class_signature] and object_parent is None):
+                # TODO: refactor log module. We need to log twice to see it in
+                # gui and in the terminal. Ugly.
+                msg = "A parent is needed for %s objects" % obj.class_signature
+                getLogger(self).error(msg)
+                return False
             dataMapper.save(obj)
             self.treeWordsTries.addWord(obj.getName())
             if obj.class_signature == model.hosts.Host.class_signature:
@@ -639,6 +655,26 @@ class ModelController(threading.Thread):
             notifier.editHost(service.getHost())
             res = True
         return res
+
+    def addPluginStart(self, name):
+        self.__addPendingAction(modelactions.PLUGINSTART, name)
+
+    def addPluginEnd(self, name):
+        self.__addPendingAction(modelactions.PLUGINEND, name)
+
+    def _pluginStart(self, name):
+        self.active_plugins_count_lock.acquire()
+        getLogger(self).info("Plugin Started: " + name)
+        self.active_plugins_count += 1
+        self.active_plugins_count_lock.release()
+        return True
+
+    def _pluginEnd(self, name):
+        self.active_plugins_count_lock.acquire()
+        getLogger(self).info("Plugin Ended: " + name)
+        self.active_plugins_count -= 1
+        self.active_plugins_count_lock.release()
+        return True
 
     def addVulnToInterfaceASYNC(self, host, intId, newVuln):
         self.__addPendingAction(modelactions.ADDVULNINT, newVuln, intId)
@@ -843,20 +879,23 @@ class ModelController(threading.Thread):
             name, protocol=protocol, ports=ports, status=status,
             version=version, description=description, parent_id=parent_id)
 
-    def newVuln(self, name, desc="", ref=None, severity="", resolution="", parent_id=None):
+    def newVuln(self, name, desc="", ref=None, severity="", resolution="",
+                confirmed=False, parent_id=None):
         return model.common.factory.createModelObject(
             model.common.ModelObjectVuln.class_signature,
-            name, desc=desc, ref=ref, severity=severity, resolution=resolution, parent_id=parent_id)
+            name, desc=desc, ref=ref, severity=severity, resolution=resolution,
+            confirmed=confirmed, parent_id=parent_id)
 
-    def newVulnWeb(self, name, desc="", ref=None, severity="", resolution="", website="",
-                   path="", request="", response="", method="", pname="",
-                   params="", query="", category="", parent_id=None):
+    def newVulnWeb(self, name, desc="", ref=None, severity="", resolution="",
+                   website="", path="", request="", response="", method="",
+                   pname="", params="", query="", category="", confirmed=False,
+                   parent_id=None):
         return model.common.factory.createModelObject(
             model.common.ModelObjectVulnWeb.class_signature,
             name, desc=desc, ref=ref, severity=severity, resolution=resolution,
             website=website, path=path, request=request, response=response,
             method=method, pname=pname, params=params, query=query,
-            category=category, parent_id=parent_id)
+            category=category, confirmed=confirmed, parent_id=parent_id)
 
     def newNote(self, name, text, parent_id=None):
         return model.common.factory.createModelObject(
@@ -869,40 +908,55 @@ class ModelController(threading.Thread):
             username, password=password, parent_id=parent_id)
 
     def getHost(self, name):
-        hosts_mapper = self.mappers_manager.getMapper(model.hosts.Host.__name__)
+        hosts_mapper = self.mappers_manager.getMapper(model.hosts.Host.class_signature)
         return hosts_mapper.find(name)
 
-    def getHostsCount(self):
-        return len(self._hosts)
-
     def getAllHosts(self):
-        hosts = self.mappers_manager.getMapper(
-            model.hosts.Host.__name__).getAll()
+        """Return a list with every host. If there's an exception, assume there
+        are no hosts.
+        """
+        try:
+            hosts = self.mappers_manager.getMapper(
+                model.hosts.Host.class_signature).getAll()
+        except:
+            hosts = []
         return hosts
-    
+
     def getWebVulns(self):
         return self.mappers_manager.getMapper(
             model.common.ModelObjectVulnWeb.class_signature).getAll()
 
-    def createIndex(self, hosts):
-        self.treeWordsTries = TreeWordsTries()
-        self.treeWordsTries.clear()
-        for k in hosts.keys():
-            h = hosts[k]
-            self.treeWordsTries.addWord(h.getName())
-            for intr in h.getAllInterfaces():
-                ipv4 = intr.ipv4
-                ipv6 = intr.ipv6
-                if not ipv4['address'] in ["0.0.0.0", None]:
-                    self.treeWordsTries.addWord(ipv4['address'])
+    def getHostsCount(self):
+        """Get how many hosts are in the workspace. If it can't, it will
+        return zero."""
+        try:
+            hosts = model.hosts.Host.class_signature
+            count = self.mappers_manager.getMapper(hosts).getCount()
+        except:
+            getLogger(self).debug("Couldn't get host count: assuming it is zero.")
+            count = 0
+        return count
 
-                if not ipv6['address'] in ["0000:0000:0000:0000:0000:0000:0000:0000", None]:
-                    self.treeWordsTries.addWord(ipv6['address'])
+    def getServicesCount(self):
+        """Get how many services are in the workspace. If it can't, it will
+        return zero."""
+        try:
+            services = model.hosts.Service.class_signature
+            count = self.mappers_manager.getMapper(services).getCount()
+        except:
+            getLogger(self).debug("Couldn't get services count: assuming it is zero.")
+            count = 0
+        return count
 
-                for hostname in intr.getHostnames():
-                    self.treeWordsTries.addWord(hostname)
-
-    def checkPermissions(self, op):
-        ## In order to use the decorator passPermissionsOrRaise
-        ## The client should implement checkPermissions method.
-        self.__sec.checkPermissions(op)
+    def getVulnsCount(self):
+        """Get how many vulns (web + normal) are in the workspace.
+        If it can't, it will return zero."""
+        try:
+            vulns = model.common.ModelObjectVuln.class_signature
+            web_vulns = model.common.ModelObjectVulnWeb.class_signature
+            count = (self.mappers_manager.getMapper(vulns).getCount() +
+                     self.mappers_manager.getMapper(web_vulns).getCount())
+        except:
+            getLogger(self).debug("Couldn't get vulnerabilities count: assuming it is zero.")
+            count = 0
+        return count

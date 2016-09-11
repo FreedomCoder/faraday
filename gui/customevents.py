@@ -30,6 +30,8 @@ DELHOST = 4101
 EDITHOST = 4102
 CHANGEFROMINSTANCE = 5100
 UPDATEMODEL_ID = 54321
+CONNECTION_REFUSED = 42424
+WORKSPACE_PROBLEM = 24242
 
 
 class CustomEvent(object):
@@ -65,11 +67,25 @@ class ShowPopupCustomEvent(CustomEvent):
 
 
 class ShowExceptionCustomEvent(CustomEvent):
-    def __init__(self, text, callback):
+    def __init__(self, text, callback, error_name=None):
         CustomEvent.__init__(self, EXCEPTION_ID)
         self.text = text
         self.exception_objects = [None, text]
         self.callback = callback
+        if error_name is not None:
+            self.error_name = error_name
+
+# this is probably a bad name for the class
+# maybe ConnectionRefusedCustomEven would've been better
+class ShowExceptionConnectionRefusedCustomEvent(CustomEvent):
+    def __init__(self, problem=None):
+        CustomEvent.__init__(self, CONNECTION_REFUSED)
+        self.problem = problem
+
+class WorkspaceProblemCustomEvent(CustomEvent):
+    def __init__(self, problem=None):
+        CustomEvent.__init__(self, WORKSPACE_PROBLEM)
+        self.problem = problem
 
 
 class RenameHostsRootCustomEvent(CustomEvent):

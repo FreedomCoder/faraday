@@ -4,10 +4,6 @@ Copyright (C) 2013  Infobyte LLC (http://www.infobytesec.com/)
 See the file 'doc/LICENSE' for the license information
 
 '''
-"""
-Contains base classes used to represent the application model
-and some other common objects and functions used in the model
-"""
 import sys
 import os
 import traceback
@@ -18,7 +14,7 @@ from utils.decorators import updateLocalMetadata
 import json
 import model
 from conflict import ConflictUpdate
-from model.diff import ModelObjectDiff
+from model.diff import ModelObjectDiff, MergeSolver
 
 try:
     import model.api as api
@@ -31,12 +27,20 @@ from utils.common import *
 from time import time
 import cPickle as pickle
 from config.configuration import getInstanceConfiguration
+CONF = getInstanceConfiguration()
+
+"""
+Contains base classes used to represent the application model
+and some other common objects and functions used in the model
+"""
+
 
 class MetadataUpdateActions(object):
     """Constants for the actions made on the update"""
     UNDEFINED   = -1
     CREATE      = 0
     UPDATE      = 1
+
 
 class Metadata(object):
     """To save information about the modification of ModelObjects.
@@ -150,7 +154,7 @@ class ModelObject(object):
         if prop1 in self.defaultValues(): return prop2
         elif prop2 in self.defaultValues(): return prop1
         elif self.tieBreakable(key): return self.tieBreak(key, prop1, prop2)
-        else: return (prop2, prop1)
+        else: return (prop1, prop2)
 
     def tieBreakable(self, key):
         return False
@@ -164,10 +168,18 @@ class ModelObject(object):
         for k, v in diff.getPropertiesDiff().items():
             attribute = self.__getAttribute(k)
             prop_update = self.propertyTieBreaker(attribute, *v)
-            if isinstance(prop_update, tuple):
-                conflict = True
-            else:
+
+            if (not isinstance(prop_update, tuple) or
+                    CONF.getMergeStrategy()):
+                # if there's a strategy set by the user, apply it
+                if isinstance(prop_update, tuple):
+                    prop_update = MergeSolver(
+                        CONF.getMergeStrategy()
+                        ).solve(prop_update[0], prop_update[1])
+
                 setattr(self, attribute, prop_update)
+            else:
+                conflict = True
         if conflict:
             self.updates.append(ConflictUpdate(self, newModelObject))
         return conflict
@@ -850,16 +862,12 @@ class ModelObjectNote(ModelComposite):
     def __repr__(self):
         return "%s: %s" % (self.name, self.text)
 
-#-------------------------------------------------------------------------------
+
 class ModelObjectVuln(ModelComposite):
-    """
-    Simple class to store vulnerability about any object.
-    id will be used to number vulnerability (based on a counter on the object being commented)
-    parent will be a reference to the object being commented.
-    """
     class_signature = "Vulnerability"
 
-    def __init__(self, name="",desc="", ref=None, severity="", resolution="", parent_id=None):
+    def __init__(self, name="", desc="", ref=None, severity="", resolution="",
+                 confirmed=False, parent_id=None):
         """
         The parameters refs can be a single value or a list with values
         """
@@ -867,7 +875,7 @@ class ModelObjectVuln(ModelComposite):
         self.name = name
         self._desc = desc
         self.data = ""
-        
+        self.confirmed = confirmed
         self.refs = []
 
         if isinstance(ref, list):
@@ -878,6 +886,20 @@ class ModelObjectVuln(ModelComposite):
         # Severity Standarization
         self.severity = self.standarize(severity)
         self.resolution = resolution
+
+    def _updatePublicAttributes(self):
+
+        self.publicattrs['Name'] = 'getName'
+        self.publicattrs['Description'] = 'getDescription'
+        self.publicattrs['Data'] = "getData"
+        self.publicattrs['Severity'] = 'getSeverity'
+        self.publicattrs['Refs'] = 'getRefs'
+
+        self.publicattrsrefs['Name'] = 'name'
+        self.publicattrsrefs['Description'] = '_desc'
+        self.publicattrsrefs['Data'] = "data"
+        self.publicattrsrefs['Severity'] = 'severity'
+        self.publicattrsrefs['Refs'] = 'refs'
 
     def standarize(self, severity):
         # Transform all severities into lower strings
@@ -911,16 +933,34 @@ class ModelObjectVuln(ModelComposite):
         self._id = get_hash([self.name, self._desc])
         self._prependParentId()
 
+    def tieBreakable(self, key):
+        '''
+        If the confirmed property has a conflict, there's two possible reasons:
+            confirmed is false, and the new value is true => returns true
+            confirmed is true, and the new value is false => returns true
+        '''
+        if key == "confirmed":
+            return True
+        return False
+
+    def tieBreak(self, key, prop1, prop2):
+        if key == "confirmed":
+            return True
+        return (prop1, prop2)
+
     def _setDesc(self, desc):
         self._desc = desc
 
     #@save
     @updateLocalMetadata
-    def updateAttributes(self, name=None, desc=None, severity=None, resolution=None, refs=None):
+    def updateAttributes(self, name=None, desc=None, data=None,
+                         severity=None, resolution=None, refs=None):
         if name is not None:
             self.setName(name)
         if desc is not None:
             self.setDescription(desc)
+        if data is not None:
+            self.setData(data)
         if resolution is not None:
             self.setResolution(resolution)
         if severity is not None:
@@ -929,7 +969,6 @@ class ModelObjectVuln(ModelComposite):
             self.refs = refs
 
     def _getDesc(self):
-        #return self._desc.getvalue()
         return self._desc
 
     desc = property(_getDesc, _setDesc)
@@ -950,7 +989,7 @@ class ModelObjectVuln(ModelComposite):
         self.resolution = resolution
 
     def getResolution(self):
-        return self.resolution        
+        return self.resolution
 
     def getSeverity(self):
         return self.severity
@@ -973,6 +1012,11 @@ class ModelObjectVuln(ModelComposite):
     def getData(self):
         return self.data
 
+    def setConfirmed(self, confirmed):
+        self.confirmed = confirmed
+
+    def getConfirmed(self):
+        return self.confirmed
 
     def __str__(self):
         return "vuln id:%s - %s" % (self.id, self.name)
@@ -980,10 +1024,7 @@ class ModelObjectVuln(ModelComposite):
     def __repr__(self):
         return self.__str__()
 
-    def getSeverity(self):
-        return self.severity
 
-#-------------------------------------------------------------------------------
 class ModelObjectVulnWeb(ModelObjectVuln):
     """
     Simple class to store vulnerability web about any object.
@@ -992,12 +1033,16 @@ class ModelObjectVulnWeb(ModelObjectVuln):
     """
     class_signature = "VulnerabilityWeb"
 
-    def __init__(self, name="",desc="", website="", path="", ref=None, severity="", resolution="", request="", response="",
-                method="",pname="", params="",query="",category="", parent_id=None):
+    def __init__(self, name="", desc="", website="", path="", ref=None,
+                 severity="", resolution="", request="", response="",
+                 method="", pname="", params="", query="", category="",
+                 confirmed=False, parent_id=None):
         """
         The parameters ref can be a single value or a list with values
         """
-        ModelObjectVuln.__init__(self, name,desc, ref, severity, resolution, parent_id)
+        ModelObjectVuln.__init__(
+            self, name, desc, ref, severity, resolution, confirmed,
+            parent_id)
         self.path = path
         self.website = website
         self.request = request
@@ -1007,6 +1052,38 @@ class ModelObjectVulnWeb(ModelObjectVuln):
         self.params = params
         self.query = query
         self.category = category
+
+    def _updatePublicAttributes(self):
+
+        self.publicattrs['Name'] = 'getName'
+        self.publicattrs['Desc'] = 'getDescription'
+        self.publicattrs['Data'] = 'getData'
+        self.publicattrs['Severity'] = 'getSeverity'
+        self.publicattrs['Refs'] = 'getRefs'
+        self.publicattrs['Path'] = 'getPath'
+        self.publicattrs['Website'] = 'getWebsite'
+        self.publicattrs['Request'] = 'getRequest'
+        self.publicattrs['Response'] = 'getResponse'
+        self.publicattrs['Method'] = 'getMethod'
+        self.publicattrs['Pname'] = 'getPname'
+        self.publicattrs['Params'] = 'getParams'
+        self.publicattrs['Query'] = 'getQuery'
+        self.publicattrs['Category'] = 'getCategory'
+
+        self.publicattrsrefs['Name'] = 'name'
+        self.publicattrsrefs['Desc'] = '_desc'
+        self.publicattrsrefs['Data'] = 'data'
+        self.publicattrsrefs['Severity'] = 'severity'
+        self.publicattrsrefs['Refs'] = 'refs'
+        self.publicattrsrefs['Path'] = 'path'
+        self.publicattrsrefs['Website'] = 'website'
+        self.publicattrsrefs['Request'] = 'request'
+        self.publicattrsrefs['Response'] = 'response'
+        self.publicattrsrefs['Method'] = 'method'
+        self.publicattrsrefs['Pname'] = 'pname'
+        self.publicattrsrefs['Params'] = 'params'
+        self.publicattrsrefs['Query'] = 'query'
+        self.publicattrsrefs['Category'] = 'category'
 
     def updateID(self):
         self._id = get_hash([self.name, self.website, self.path, self.desc ])
@@ -1068,10 +1145,10 @@ class ModelObjectVulnWeb(ModelObjectVuln):
 
     #@save
     @updateLocalMetadata
-    def updateAttributes(self, name=None, desc=None, website=None, path=None, refs=None, 
+    def updateAttributes(self, name=None, desc=None, data=None, website=None, path=None, refs=None,
                         severity=None, resolution=None, request=None,response=None, method=None,
                         pname=None, params=None, query=None, category=None):
-        super(ModelObjectVulnWeb, self).updateAttributes(name, desc, severity, resolution, refs)
+        super(ModelObjectVulnWeb, self).updateAttributes(name, desc, data, severity, resolution, refs)
         if website is not None:
             self.website = website
         if path is not None:

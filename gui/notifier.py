@@ -11,7 +11,7 @@ import gui.customevents as events
 
 
 class NotificationCenter():
-    def __init__(self, uiapp=FaradayUi()):
+    def __init__(self, uiapp=FaradayUi(None, None, None, None, None)):
         self.uiapp = uiapp
         self._consumers = []
         self._consumers_lock = threading.RLock()
@@ -57,6 +57,12 @@ class NotificationCenter():
     def workspaceChanged(self, workspace, workspace_type):
         self._notifyWidgets(events.WorkspaceChangedCustomEvent(workspace,workspace_type))
 
+    def CouchDBConnectionProblem(self, problem=None):
+        self._notifyWidgets(events.ShowExceptionConnectionRefusedCustomEvent(problem))
+
+    def WorkspaceProblem(self, problem=None):
+        self._notifyWidgets(events.WorkspaceProblemCustomEvent(problem))
+
     def addHost(self, host):
         self._notifyWidgets(events.AddHostCustomEvent(host))
 
@@ -74,3 +80,4 @@ class NotificationCenter():
 
     def changeFromInstance(self, change):
         self._notifyWidgets(events.ChangeFromInstanceCustomEvent(change))
+

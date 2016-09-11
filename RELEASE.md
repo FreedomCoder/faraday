@@ -10,6 +10,184 @@ Please run ./faraday.py --update
 New features in the latest update
 =====================================
 
+August 12, 2016:
+---
+* Added Faraday Server
+* Improved performance in web UI
+* Added some basic APIs to Faraday Server
+* Added licenses management section in web UI
+* Totally removed QT3, GTK is now the only GUI
+* Deprecated FileSystem databses: now Faraday works exclusively with Faraday Server and CouchDB
+* Added a button to go to the Faraday Web directly from GTK
+* Fixed bug when deleting objects from Faraday Web
+* Fixed bug where icons where not copied to correct folder on initialization
+* Fixed bug where current workspace wouldn't correspond to selected workspace on the sidebar on GTK
+* Fixed bug in 'Refresh Workspace' button on GTK
+* Fixed bug where Host Sidebar and Statusbar information wasn't correctly updated on GTK
+* Fixed bug in service editing
+* Fixed sqlmap plugin
+* Fixed metapsloit plugin
+
+Jul 1, 2016:
+---
+* GTK is the default interface now.
+* Added new plugin : Ndiff.
+* Added new plugin : Netcat (Gnu netcat - OpenBSD netcat - Original netcat)
+* Added button to edit your host in the GTK interface.
+* Hosts sidebar now can be sorted by amout of vulnerabilities and OS.
+* Changes in installation: install.sh now installs only GTK, QT is considered deprecated.
+* Changes in installation: Faraday now runs with the last versions of Python modules.
+* Changes in installation: fixed names of packages in setup_server.sh
+* Usability: Enter key in GTK dialogs works as OK button
+* Improved handling of lost connection to CouchDB database
+* First steps towards deprecating Filesystem databases
+* Fixed a bug when workspace was changed
+* Fixed a bug with Import Reports Dialog in GTK GUI on OS X.
+* Fixed a bug with Ctrl+Shift+C and Ctrl+Shift+V in some desktops managers.
+* Fixed a bug with mapper of vulnerabilities.
+
+Jun 13, 2016:
+---
+* Added Import Report dialog to Faraday GTK
+* Added a 'Loading workspace...' dialog to Faraday GTK
+* Added host sidebar to Faraday GTK
+* Added host information dialog to Faraday GTK with the full data about a host, its interfaces, services and vulnerabilities
+* Added support for run faraday from other directories.
+* Fixed log reapparing after being disabled if user created a new tab
+* Fixed bug regarding exception handling in Faraday GTK
+* Now Faraday GTK supports Ctrl+Shift+C / Ctrl+Shift+V to Copy/Paste
+* Faraday will now not crash if you suddenly lose connection to your CouchDB
+
+May 23, 2016:
+---
+* Removed description from Hosts list in WEB UI
+* Fixed sort in Hosts list in WEB UI
+* Fixed ports sorting in Host view in WEB UI
+* Added search link for OS in Hosts list in WEB UI
+* Removed description from Services list in WEB UI
+* Added version to Services list in WEB UI
+* Modified false values in Hosts list in WEB UI
+* Added search links in Services list in WEB UI
+* Added scrollbar in Gtk Terminal.
+* Added workspace status in Gtk interface
+* Added conflict resolution support for the Gtk interface
+* Added search entry for workspaces in Gtk
+* Added support for 'exit' command inside Faraday's Gtk terminal
+* Improved handling of uncaught exceptions in Gtk interface
+* Improved text formatting in Gtk's log console
+* Fixed several small bugs in Faraday GTK
+* Added support for resize workspace bar.
+* Added a quote for imported reports in WEB UI.
+* Added support for a new type of report in Qualysguard plugin.
+* Fixed bugs in plugins: Acunetix - Nmap - Nikto. 
+
+Apr 29, 2016:
+---
+* Added Open services count to Hosts list in WEB UI
+* Improved zsh integration
+* Added GTK3 interface prototype
+* Added plugin detection through report name
+* Fixed an error in wcscan script
+* Fixed nikto plugin
+* Fixed openvas plugin
+
+Apr 04, 2016
+---
+* Added cli mode (see wiki for usage instructions)
+* Support for multiple Faraday instances in the same host
+* Fixed bug for editing web vulns in bulk
+* Fixed bug for select all in web UI
+* Fixed bugs in Qualys, ZAP, nikto, w3af, openVas plugins
+* Added some new scripts and helpers
+
+
+Feb 26, 2016:
+---
+* Fixed bug in pip debian
+* BugFix pip install.
+* Checks additionals about dependencies in installation.
+* Warning about a upgrade to experimental in debian installation.
+* Fixed small bug in CSV importing
+* Fixed styles for Status Report
+* Fixed bug on Status Report filter after editing
+* Added support for Kali Rolling Edition
+* Notify user when the current Workspace doesn't exist
+* Show all evidence files in Status Report
+* Added script to remove all vulns with a specific severity value (parameterized)
+* Fixed Arachni Plugin bugs
+* Added new version for Maltego Plugin
+* Added support for Mint 17 
+
+Dec 18, 2015:
+---
+* Immunity Canvas plugin added
+* Added Dig plugin
+* Added Traceroute plugin
+* Fixed bug in first run of Faraday with log path and API errors
+* Added parametrization for port configuration on APIs
+* Refactor Plugin Base to update active WS name in var
+* Refactor Plugins to use current WS in temp filename under $HOME/.faraday/data. Affected Plugins:
+    - amap
+    - dnsmap
+    - nmap
+    - sslcheck
+    - wcscan
+    - webfuzzer
+    - nikto
+* Fixed bug get_installed_distributions from handler exceptions
+* Added Wiki information about running Faraday without configuring CouchDB
+* Fixed Unicode bug in Nexpose-full Plugin
+* Filter false-positives in Status Report
+* Fixed bug that prevented the use of "reports" and "cwe" strings in Workspace names
+* Added port to Service type target in new vuln modal
+* Added new scripts for faraday plugin:
+    - /bin/delAllVulnsWith.py - delete all vulns that match a regex
+    - /bin/getAllbySrv.py - get all IP addresses that have defined open port
+    - /bin/getAllIpsNotServices.py added - get all IPs from targets without services
+* Fixed bug null last workspace
+* Fixed bugs in CSV export/import in QT
+
+Oct 2, 2015:
+---
+* Continuous Scanning Tool cscan added to ./scripts/cscan
+* Fix for saving objects without parent
+* Hosts and Services views now have pagination and search
+* Updates version number on Faraday Start
+* Visual fixes on Firefox
+* Migrate graphs from D3.js to Chart.js
+* Added Services columns to Status Report
+* Added sections of Commercial versions
+* Converted references to links in Status Report. Support for CVE, CWE, Exploit Database and Open Source Vulnerability Database
+* Added Peepingtom, SSHdefaultscan and pasteAnalyzer plugins
+* Fixed Debian install
+
+Sep 10, 2015:
+---
+* Adding filename path information of report imported in history command
+* Remove old couchdb upgrade process
+* Adding Iceweasel browser > 38.2.0 support
+* Adding more navigability in differents GUI Web (Dashboard/Services/Views)
+* Fixed bug copy clipboard offline (update path of ngClip dependeces)
+* Added class to set colors to severities in new/edit vuln view
+* Medusa, Hydra & Metasploit plug-in now added discovered weak credentials as a vulnerability
+* Nmap plug-in applyies a severity depending on the result of a NSE script
+* Fixed small bug for empty ease of resolution
+* Adding more time to generation shells QT
+* Added "Search in Shodan" links in different views (Status Report, Host View, Service View)
+* Removed required of name field service bulk edition
+* Added ng-disabled on Edit button if select more of 1 host on Host View WEB UI
+* Refactored GUI Web:
+  Icon added for Modal Error
+  OS, Creator, Date for modal-services-by-host.html
+  Fixed typo in Host Edit, the popup message was wrong
+  First version for in estilos.css for clear mode
+  Also, added hover to grey boxes in the Dashboard.
+* Added vulns count for Hosts in WEB UI
+* Updated w3af plugin to support report version 1.7.6
+* Ignored cwe database from updater and QT views
+* Plugin for Nexpose XML Export 2.0
+* Added masscan plugin (1.0.3)
+
 Aug 19, 2015:
 ---
 * Exported CSV contains filters and columns from Status Report in WEB UI
@@ -22,7 +200,6 @@ Aug 19, 2015:
 * Clean dev log on plugins
 * w3af plugin refactoring
 * Fix Debian 7/8.1 install support
-
 
 Aug 05, 2015:
 ---
